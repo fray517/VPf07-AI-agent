@@ -47,6 +47,8 @@ def _system_prompt() -> str:
         "тот же запрос.\n"
         "- crypto_price_tool — цена криптовалюты (coin: bitcoin, ethereum; "
         "currency: usd, eur, rub).\n"
+        "- fiat_exchange_rate_tool — курс фиата: base_currency и "
+        "quote_currency (EUR, USD, RUB): сколько quote за 1 base.\n"
         "Если задача неясна (нет города, валюты, пути), задай короткий "
         "уточняющий вопрос. Выбирай минимально достаточный инструмент."
     )

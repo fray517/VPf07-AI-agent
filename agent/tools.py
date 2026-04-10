@@ -403,6 +403,92 @@ def get_weather(city: str, period: str = "сейчас") -> str:
     return out
 
 
+_FIAT_ALIASES: dict[str, str] = {
+    "eur": "EUR",
+    "евро": "EUR",
+    "usd": "USD",
+    "доллар": "USD",
+    "долларов": "USD",
+    "долл": "USD",
+    "rub": "RUB",
+    "руб": "RUB",
+    "рубль": "RUB",
+    "рублей": "RUB",
+}
+
+
+def _normalize_fiat_code(code: str) -> str:
+    """Трёхбуквенный ISO 4217 или короткий алиас (евро, рубль, …)."""
+    raw = code.strip()
+    if not raw:
+        raise ValueError("Пустой код валюты.")
+    key = raw.lower()
+    if key in _FIAT_ALIASES:
+        return _FIAT_ALIASES[key]
+    if len(raw) == 3 and raw.isalpha():
+        return raw.upper()
+    raise ValueError(
+        f"Неизвестный код валюты: {code!r}. Используйте EUR, USD, RUB."
+    )
+
+
+def get_fiat_exchange_rate(base: str, quote: str) -> float:
+    """Сколько единиц quote за 1 единицу base (open.er-api.com, без ключа)."""
+    b = _normalize_fiat_code(base)
+    q = _normalize_fiat_code(quote)
+    if b == q:
+        return 1.0
+    _logger.debug("get_fiat_exchange_rate: %s -> %s", b, q)
+    t0 = time.perf_counter()
+    url = f"https://open.er-api.com/v6/latest/{b}"
+    r = requests.get(
+        url,
+        timeout=20,
+        headers={"User-Agent": "VPf07-local-agent/1.0"},
+    )
+    r.raise_for_status()
+    data: dict[str, Any] = r.json()
+    if data.get("result") != "success":
+        raise ValueError(f"Ответ API: {data.get('error-type', data)}")
+    rates = data.get("rates") or {}
+    if q not in rates:
+        raise ValueError(
+            f"Нет курса {b}/{q}. Доступные пары уточните по коду валюты."
+        )
+    rate = float(rates[q])
+    _logger.debug(
+        "get_fiat_exchange_rate: %s/%s=%s за %.3f с",
+        b,
+        q,
+        rate,
+        time.perf_counter() - t0,
+    )
+    return rate
+
+
+@tool
+def fiat_exchange_rate_tool(base_currency: str, quote_currency: str) -> str:
+    """Курс фиатных валют: сколько quote за 1 base. Коды: EUR, USD, RUB."""
+    _logger.info(
+        "инструмент fiat_exchange_rate_tool: %r -> %r",
+        base_currency,
+        quote_currency,
+    )
+    try:
+        rate = get_fiat_exchange_rate(base_currency, quote_currency)
+        b = _normalize_fiat_code(base_currency)
+        q = _normalize_fiat_code(quote_currency)
+        out = f"1 {b} = {rate} {q}"
+        _logger.info("fiat_exchange_rate_tool: ok")
+        return out
+    except ValueError as exc:
+        _logger.warning("fiat_exchange_rate_tool: %s", exc)
+        return f"Ошибка курса: {exc}"
+    except Exception:
+        _logger.exception("fiat_exchange_rate_tool")
+        return "Ошибка курса валют (см. лог)."
+
+
 def get_crypto_price(coin: str, currency: str) -> float:
     """Цена криптовалюты через CoinGecko (ids + vs_currencies)."""
     key = coin.strip().lower()
@@ -461,6 +547,7 @@ def build_tools() -> list:
         safe_terminal_exec,
         get_weather,
         crypto_price_tool,
+        fiat_exchange_rate_tool,
     ]
 
 
@@ -469,45 +556,61 @@ def memory_file_path() -> Path:
     return _AGENT_DIR / "memory.json"
 
 
-def load_memory_turns() -> list[dict[str, Any]]:
-    """Загружает сохранённые реплики из memory.json."""
+def _load_all_turns_raw() -> list[dict[str, Any]]:
+    """Все реплики из memory.json (без фильтра по чату)."""
     path = memory_file_path()
     if not path.is_file():
-        _logger.debug("load_memory_turns: файла нет %s", path)
         return []
     try:
         raw = path.read_text(encoding="utf-8")
         data = json.loads(raw)
     except (json.JSONDecodeError, OSError) as exc:
-        _logger.warning("load_memory_turns: не прочитан %s", exc)
+        _logger.warning("memory: не прочитан файл %s", exc)
         return []
     turns = data.get("turns")
     if isinstance(turns, list):
-        ok = [t for t in turns if isinstance(t, dict)]
-        _logger.debug("load_memory_turns: записей=%s", len(ok))
-        return ok
+        return [t for t in turns if isinstance(t, dict)]
     return []
+
+
+def load_memory_turns(chat_id: str = "cli") -> list[dict[str, Any]]:
+    """Реплики для данного чата (cli — консоль; для Telegram — str(chat_id))."""
+    all_turns = _load_all_turns_raw()
+    out = []
+    for t in all_turns:
+        cid = t.get("chat_id", "cli")
+        if cid == chat_id:
+            out.append(t)
+    _logger.debug(
+        "load_memory_turns: chat_id=%s записей=%s",
+        chat_id,
+        len(out),
+    )
+    return out
 
 
 def append_memory_turn(
     user_text: str,
     assistant_text: str,
     summary: str,
+    chat_id: str = "cli",
 ) -> None:
     """Добавляет реплику и резюме в memory.json."""
     path = memory_file_path()
     _logger.info(
-        "append_memory_turn: user_len=%s answer_len=%s summary_len=%s",
+        "append_memory_turn: chat_id=%s user_len=%s answer_len=%s summary_len=%s",
+        chat_id,
         len(user_text),
         len(assistant_text),
         len(summary),
     )
-    turns = load_memory_turns()
+    turns = _load_all_turns_raw()
     turns.append(
         {
             "user": user_text,
             "assistant": assistant_text,
             "summary": summary,
+            "chat_id": chat_id,
         }
     )
     payload = {"turns": turns[-200:]}
