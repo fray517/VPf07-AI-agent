@@ -49,6 +49,8 @@ def _system_prompt() -> str:
         "currency: usd, eur, rub).\n"
         "- fiat_exchange_rate_tool — курс фиата: base_currency и "
         "quote_currency (EUR, USD, RUB): сколько quote за 1 base.\n"
+        "- schedule_reminder — напоминание в Telegram: task, time_hm (ЧЧ:ММ), "
+        "day_month (число-месяц, год текущий). Один вызов — одно напоминание.\n"
         "Если задача неясна (нет города, валюты, пути), задай короткий "
         "уточняющий вопрос. Выбирай минимально достаточный инструмент."
     )

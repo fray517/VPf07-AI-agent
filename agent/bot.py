@@ -6,6 +6,7 @@ import logging
 import os
 import sys
 import threading
+import time
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent.parent
@@ -17,6 +18,11 @@ import telebot
 from agent.agent import build_agent_graph, build_chat_model, load_env
 from agent.dialog import recursion_limit, run_turn
 from agent.logging_setup import configure_logging
+from agent.reminders import (
+    now_in_reminder_tz,
+    pop_due_reminders,
+    set_reminder_chat,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -27,6 +33,33 @@ _MAX_MSG = 4096
 
 def _chat_key(chat_id: int) -> str:
     return f"tg_{chat_id}"
+
+
+def _start_reminder_loop(bot: telebot.TeleBot) -> None:
+    """Фоновая проверка напоминаний каждые 15 с."""
+
+    def worker() -> None:
+        while True:
+            time.sleep(15)
+            try:
+                now = now_in_reminder_tz()
+                due = pop_due_reminders(now)
+                for it in due:
+                    cid = it.get("chat_id")
+                    task = (it.get("task") or "").strip()
+                    if cid is None:
+                        continue
+                    text = f"Напоминание: {task}" if task else "Напоминание."
+                    bot.send_message(int(cid), text[:_MAX_MSG])
+                    _logger.info(
+                        "напоминание отправлено id=%s chat_id=%s",
+                        it.get("id"),
+                        cid,
+                    )
+            except Exception:
+                _logger.exception("reminder_loop")
+
+    threading.Thread(target=worker, daemon=True, name="reminders").start()
 
 
 def _send_long_reply(bot: telebot.TeleBot, message: telebot.types.Message, text: str) -> None:
@@ -62,7 +95,9 @@ def main() -> None:
         bot.reply_to(
             message,
             "Привет! Я локальный AI-агент. Пишите сообщениями — "
-            "вопросы, задачи, погода, крипта и т.д.\n"
+            "вопросы, задачи, погода, крипта, напоминания и т.д.\n"
+            "Напоминание: напишите, например, «напомни купить хлеб 10-04 в "
+            "18:30».\n"
             "Команды: /start, /help",
         )
 
@@ -89,14 +124,18 @@ def main() -> None:
             messages = _SESSIONS[chat_id]
             key = _chat_key(chat_id)
             try:
-                answer, new_msgs, err = run_turn(
-                    graph,
-                    llm,
-                    messages,
-                    raw,
-                    chat_id=key,
-                    turn_no=0,
-                )
+                set_reminder_chat(chat_id)
+                try:
+                    answer, new_msgs, err = run_turn(
+                        graph,
+                        llm,
+                        messages,
+                        raw,
+                        chat_id=key,
+                        turn_no=0,
+                    )
+                finally:
+                    set_reminder_chat(None)
             except Exception:
                 _logger.exception("run_turn")
                 bot.reply_to(
@@ -111,6 +150,7 @@ def main() -> None:
             return
         _send_long_reply(bot, message, answer)
 
+    _start_reminder_loop(bot)
     _logger.info("polling запущен")
     bot.infinity_polling(skip_pending=True, timeout=60)
 

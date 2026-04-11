@@ -15,6 +15,8 @@ import requests
 from duckduckgo_search import DDGS
 from langchain_core.tools import tool
 
+from agent import reminders as _reminders
+
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _AGENT_DIR = Path(__file__).resolve().parent
 _logger = logging.getLogger(__name__)
@@ -489,6 +491,36 @@ def fiat_exchange_rate_tool(base_currency: str, quote_currency: str) -> str:
         return "Ошибка курса валют (см. лог)."
 
 
+@tool
+def schedule_reminder(task: str, time_hm: str, day_month: str) -> str:
+    """Напоминание в Telegram: текст задачи, время ЧЧ:ММ, дата число-месяц
+    (год — текущий). Работает только в боте."""
+    _logger.info(
+        "инструмент schedule_reminder: len=%s time=%r date=%r",
+        len(task),
+        time_hm,
+        day_month,
+    )
+    chat_id = _reminders.get_reminder_chat()
+    if chat_id is None:
+        return (
+            "Напоминания по расписанию доступны в Telegram-боте "
+            "(python run_bot.py)."
+        )
+    try:
+        fire_at = _reminders.build_fire_datetime(day_month, time_hm)
+    except ValueError as exc:
+        _logger.warning("schedule_reminder: разбор даты/времени: %s", exc)
+        return f"Не удалось разобрать дату/время: {exc}"
+    now = _reminders.now_in_reminder_tz()
+    if fire_at <= now:
+        return (
+            "Указанное время уже прошло. Задайте будущую дату и время."
+        )
+    _reminders.add_reminder(task, fire_at, chat_id)
+    return _reminders.format_reminder_confirmation(fire_at, task.strip())
+
+
 def get_crypto_price(coin: str, currency: str) -> float:
     """Цена криптовалюты через CoinGecko (ids + vs_currencies)."""
     key = coin.strip().lower()
@@ -548,6 +580,7 @@ def build_tools() -> list:
         get_weather,
         crypto_price_tool,
         fiat_exchange_rate_tool,
+        schedule_reminder,
     ]
 
 
