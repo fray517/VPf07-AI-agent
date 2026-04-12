@@ -8,8 +8,7 @@ import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-_AGENT_DIR = Path(__file__).resolve().parent
-_DEFAULT_LOG = _AGENT_DIR / "agent.log"
+from agent.paths import agent_data_dir
 
 
 def configure_logging() -> None:
@@ -18,7 +17,10 @@ def configure_logging() -> None:
     level = getattr(logging, level_name, logging.INFO)
 
     log_file = os.environ.get("LOG_FILE", "").strip()
-    path = Path(log_file) if log_file else _DEFAULT_LOG
+    if log_file:
+        path = Path(log_file)
+    else:
+        path = agent_data_dir() / "agent.log"
 
     fmt = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
     datefmt = "%Y-%m-%d %H:%M:%S"

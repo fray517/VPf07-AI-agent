@@ -14,10 +14,9 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-_logger = logging.getLogger(__name__)
+from agent.paths import agent_data_dir
 
-_AGENT_DIR = Path(__file__).resolve().parent
-_FILE = _AGENT_DIR / "reminders.json"
+_logger = logging.getLogger(__name__)
 _LOCK = threading.Lock()
 
 _reminder_chat_ctx: contextvars.ContextVar[int | None] = contextvars.ContextVar(
@@ -50,11 +49,16 @@ def _timezone() -> tzinfo:
         return timezone.utc
 
 
+def _reminders_path() -> Path:
+    return agent_data_dir() / "reminders.json"
+
+
 def _load_raw() -> dict[str, Any]:
-    if not _FILE.is_file():
+    path = _reminders_path()
+    if not path.is_file():
         return {"items": []}
     try:
-        raw = _FILE.read_text(encoding="utf-8")
+        raw = path.read_text(encoding="utf-8")
         data = json.loads(raw)
     except (json.JSONDecodeError, OSError) as exc:
         _logger.warning("reminders: не прочитан файл %s", exc)
@@ -68,7 +72,7 @@ def _load_raw() -> dict[str, Any]:
 
 
 def _save_raw(data: dict[str, Any]) -> None:
-    _FILE.write_text(
+    _reminders_path().write_text(
         json.dumps(data, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )

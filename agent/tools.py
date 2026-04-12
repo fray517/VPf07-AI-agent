@@ -15,6 +15,7 @@ import requests
 from duckduckgo_search import DDGS
 from langchain_core.tools import tool
 
+from agent.paths import agent_data_dir
 from agent import reminders as _reminders
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -586,7 +587,7 @@ def build_tools() -> list:
 
 def memory_file_path() -> Path:
     """Путь к JSON-файлу долговременной памяти."""
-    return _AGENT_DIR / "memory.json"
+    return agent_data_dir() / "memory.json"
 
 
 def _load_all_turns_raw() -> list[dict[str, Any]]:

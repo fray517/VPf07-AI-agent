@@ -1,0 +1,18 @@
+# Запуск Telegram-бота в Docker.
+# Создайте agent/.env из env.example (OPENAI_API_KEY, TELEGRAM_BOT_TOKEN).
+
+services:
+  bot:
+    build: .
+    image: vpf07-ai-agent-bot:latest
+    restart: unless-stopped
+    env_file:
+      - agent/.env
+    environment:
+      AGENT_DATA_DIR: /app/agent/data
+      LOG_LEVEL: INFO
+    volumes:
+      - agent-data:/app/agent/data
+
+volumes:
+  agent-data:
